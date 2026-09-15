@@ -1,0 +1,262 @@
+flowchart TD
+
+    %% =========================
+    %% CAMERA INPUT
+    %% =========================
+
+    A[IP / RTSP Cameras<br/>H.264 / H.265 Streams]
+        --> B[Video Ingest & Hardware Decode<br/>DeepStream + GStreamer + NVDEC]
+
+    %% =========================
+    %% STAGE 1
+    %% =========================
+
+    subgraph S1["STAGE 1 — LIVE VEHICLE INTELLIGENCE | DGX SPARK 1 & 2"]
+        B --> C[Vehicle Detection<br/>RT-DETR / YOLO / TensorRT]
+
+        C --> D[Multi Object Tracking<br/>NvDCF]
+
+        D --> E[Generate Vehicle Event ID<br/>camera_id + track_id + UUID]
+
+        E --> F[Vehicle Attribute Analysis]
+
+        F --> F1[Vehicle Type<br/>Car / Bike / Truck / Bus / Auto etc.]
+        F --> F2[Vehicle Colour]
+        F --> F3[Vehicle Counting]
+        F --> F4[Timestamp + Camera ID + Bounding Box]
+
+        F1 --> G
+        F2 --> G
+        F3 --> G
+        F4 --> G
+
+        G[Per-Vehicle Frame Buffer<br/>Maintain frames while vehicle is visible]
+
+        G --> H[Snapshot Quality Scoring]
+
+        H --> H1[Blur Score]
+        H --> H2[Vehicle Size]
+        H --> H3[Plate Visibility]
+        H --> H4[Viewing Angle]
+        H --> H5[Exposure / Lighting]
+        H --> H6[Occlusion]
+
+        H1 --> I
+        H2 --> I
+        H3 --> I
+        H4 --> I
+        H5 --> I
+        H6 --> I
+
+        I[Select Best 3–5 Frames]
+
+        I --> J1[Full Vehicle Evidence Image]
+        I --> J2[Best Vehicle Crop]
+        I --> J3[Candidate Plate Region / Crop]
+    end
+
+    %% =========================
+    %% EVENT PACKAGE
+    %% =========================
+
+    J1 --> K
+    J2 --> K
+    J3 --> K
+
+    K[Create Vehicle Event Package<br/><br/>
+    event_id<br/>
+    camera_id<br/>
+    track_id<br/>
+    timestamp<br/>
+    vehicle_type<br/>
+    vehicle_colour<br/>
+    vehicle_count data<br/>
+    bounding boxes<br/>
+    best 3–5 frames<br/>
+    full vehicle image<br/>
+    candidate plate crop]
+
+    %% =========================
+    %% MESSAGE BUS
+    %% =========================
+
+    K --> L[Event Message Bus<br/>NATS JetStream / Kafka / Redis Streams]
+
+    L -->|vehicle.snapshot.ready| M
+
+    %% =========================
+    %% STAGE 2
+    %% =========================
+
+    subgraph S2["STAGE 2 — ANPR + VISUAL INTELLIGENCE AGENT | DGX SPARK 3"]
+
+        M[Receive Vehicle Event<br/>Preserve SAME event_id]
+
+        M --> N[License Plate Detection<br/>Custom Indian Plate Detector]
+
+        N --> O[Plate Preprocessing]
+
+        O --> O1[Perspective Correction]
+        O --> O2[Denoising]
+        O --> O3[Contrast / Exposure Correction]
+        O --> O4[Optional Super Resolution]
+        O --> O5[Plate Quality Check]
+
+        O1 --> P
+        O2 --> P
+        O3 --> P
+        O4 --> P
+        O5 --> P
+
+        P[Multi-Model Plate Recognition]
+
+        P --> Q1[Primary ANPR OCR<br/>Custom Indian Plate OCR Model]
+
+        P --> Q2[Secondary OCR<br/>PP-OCR / Similar]
+
+        P --> Q3[VLM Verification<br/>Qwen-VL / Similar Vision Model]
+
+        %% =========================
+        %% VLM DETAIL EXTRACTION
+        %% =========================
+
+        M --> R[Visual Detail Agent<br/>Uses Full Vehicle + Selected Frames]
+
+        R --> R1[Read Visible Stickers]
+        R --> R2[Read Windshield Text]
+        R --> R3[Detect Decals / Logos]
+        R --> R4[Visible Damage / Marks]
+        R --> R5[Commercial / Taxi Markings]
+        R --> R6[Other Small Visible Details]
+
+        %% =========================
+        %% CONSENSUS
+        %% =========================
+
+        Q1 --> S
+        Q2 --> S
+        Q3 --> S
+
+        S[Plate Consensus Engine]
+
+        S --> S1A[Multi-Frame Voting]
+        S --> S2A[Multi-Model Agreement]
+        S --> S3A[Indian Plate Format Validation]
+        S --> S4A[Character Confidence Scoring]
+
+        S1A --> T
+        S2A --> T
+        S3A --> T
+        S4A --> T
+
+        R1 --> U
+        R2 --> U
+        R3 --> U
+        R4 --> U
+        R5 --> U
+        R6 --> U
+
+        U[Structured Visual Details<br/>JSON + Confidence Scores]
+
+        T[Final Plate Result<br/>Raw Text + Normalized Text + Confidence]
+    end
+
+    %% =========================
+    %% EVENT AGGREGATION
+    %% =========================
+
+    T --> V
+    U --> V
+    K --> V
+
+    V[Vehicle Event Aggregator<br/>Join Everything Using event_id]
+
+    V --> W[Final Vehicle Intelligence Record]
+
+    W --> W1[Event ID]
+    W --> W2[Camera ID]
+    W --> W3[Timestamp]
+    W --> W4[Vehicle Type + Confidence]
+    W --> W5[Vehicle Colour + Confidence]
+    W --> W6[Vehicle Count / Statistics]
+    W --> W7[Plate Text + Confidence]
+    W --> W8[Raw OCR Result]
+    W --> W9[Normalized Plate]
+    W --> W10[Stickers / Decals / Small Details]
+    W --> W11[Full Vehicle Evidence Image]
+    W --> W12[Best Plate Crop]
+    W --> W13[Model Versions / Audit Data]
+
+    %% =========================
+    %% STORAGE
+    %% =========================
+
+    W --> X1[(PostgreSQL<br/>Events + Metadata)]
+    W --> X2[(Redis<br/>Live State + Cache)]
+    W --> X3[(MinIO / S3<br/>Vehicle Images + Plate Crops + Evidence)]
+    W --> X4[(ClickHouse Optional<br/>Large Scale Analytics)]
+
+    %% =========================
+    %% OUTPUT
+    %% =========================
+
+    X1 --> Y
+    X2 --> Y
+    X3 --> Y
+    X4 --> Y
+
+    Y[Platform API Layer<br/>FastAPI / gRPC]
+
+    Y --> Z1[Live Dashboard]
+    Y --> Z2[Historical Vehicle Search]
+    Y --> Z3[Plate Search]
+    Y --> Z4[Camera-wise Search]
+    Y --> Z5[Vehicle Type / Colour Search]
+    Y --> Z6[Watchlist / Blacklist Alerts]
+    Y --> Z7[External System Integration]
+    Y --> Z8[Reports & Analytics]
+
+    %% =========================
+    %% ALERTING
+    %% =========================
+
+    W --> AA{Watchlist Match?}
+
+    AA -->|Yes| AB[Generate Real-Time Alert<br/>Plate + Vehicle + Camera + Snapshot]
+    AA -->|No| AC[Store Normally]
+
+    AB --> Z6
+    AC --> X1
+
+    %% =========================
+    %% MONITORING
+    %% =========================
+
+    B -.-> MON
+    C -.-> MON
+    D -.-> MON
+    L -.-> MON
+    N -.-> MON
+    P -.-> MON
+    V -.-> MON
+
+    MON[Monitoring & Observability<br/>Prometheus + Grafana + Loki<br/>GPU Usage / Camera Health / FPS / Queue Length / Model Latency]
+
+    %% =========================
+    %% CLUSTER ASSIGNMENT
+    %% =========================
+
+    CLUSTER[3 × DGX Spark Cluster]
+
+    CLUSTER --> DS1[DGX Spark 1<br/>Camera Group A<br/>Decode + Detection + Tracking + Attributes + Snapshot Selection]
+
+    CLUSTER --> DS2[DGX Spark 2<br/>Camera Group B<br/>Decode + Detection + Tracking + Attributes + Snapshot Selection]
+
+    CLUSTER --> DS3[DGX Spark 3<br/>Plate Detection + OCR + VLM Agent + Consensus]
+
+    DS1 <-->|High-Speed ConnectX Interconnect| DS2
+    DS2 <-->|High-Speed ConnectX Interconnect| DS3
+    DS1 <-->|High-Speed ConnectX Interconnect| DS3
+
+This is Generated By ChatGPT and Claude's Opinion and ...
+Where to run this??? , Just Open mermaid.live and paste this code there and Run, You'll Get the COmplete Flow Chart. Please Give me Inputs on the Architecture
