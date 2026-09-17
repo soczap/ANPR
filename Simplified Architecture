@@ -1,0 +1,43 @@
+flowchart TD
+    CAM["IP / RTSP cameras"] --> DEC
+
+    subgraph LIVE["Stage 1 — live, must never stall"]
+        direction TB
+        DEC["Decode — NVDEC, 10-15 fps"]
+        DEC --> DET["Detect vehicles — TensorRT"]
+        DET --> TRK["Track — one ID per vehicle"]
+        TRK --> PLT["Detect + rectify plate"]
+        PLT --> SEL["Pick best crops<br/>3 plate crops: early / mid / late<br/>+ 1 vehicle crop"]
+    end
+
+    SEL -->|"vehicle exits zone = 1 job"| Q[["Bounded job queue<br/>drop oldest when full"]]
+
+    subgraph AGENT["Stage 2 — async, allowed to lag"]
+        direction TB
+        BAT["Batch up to 8 jobs"]
+        BAT --> VLM["VLM agent — Qwen3-VL 4B NVFP4<br/>all crops in ONE call<br/>returns strict JSON"]
+        VLM --> CHK{"Plate valid?<br/>grammar + readable flag"}
+        CHK -->|"no — ~10%"| RETRY["Re-run the 3 crops<br/>as separate calls"]
+        RETRY --> AGREE{"All 3 agree?"}
+    end
+
+    Q --> BAT
+    CHK -->|"yes"| AGG
+    AGREE -->|"yes"| AGG
+    AGREE -->|"no"| REV["Review queue<br/>human confirms"]
+
+    AGG["Aggregate + dedup<br/>one row per vehicle"]
+    AGG --> DB[("PostgreSQL<br/>plate, type, colour, stickers")]
+    AGG --> OBJ[("Disk / MinIO<br/>crops + frames")]
+    DB --> UI["FastAPI + React<br/>live feed, search, review"]
+    OBJ --> UI
+    REV --> UI
+
+    classDef live fill:#E1F5EE,stroke:#0F6E56,color:#04342C
+    classDef agent fill:#EEEDFE,stroke:#534AB7,color:#26215C
+    class DEC,DET,TRK,PLT,SEL live
+    class BAT,VLM,RETRY agent
+
+
+
+Run this code on mermaid.live
